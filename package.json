@@ -11,7 +11,6 @@
     "lint": "turbo run lint",
     "db:generate": "pnpm --filter @medread/db generate",
     "db:migrate": "pnpm --filter @medread/db migrate",
-    "db:seed": "pnpm --filter @medread/db seed",
     "db:studio": "pnpm --filter @medread/db studio"
   },
   "devDependencies": {

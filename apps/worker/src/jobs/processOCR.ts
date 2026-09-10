@@ -8,7 +8,7 @@ import { matchMedicineNames } from "./matchMedicineNames";
 const MIN_CONFIDENCE_TO_AUTO_COMPLETE = 0.75;
 
 export async function processOCR(payload: OcrJobPayload) {
-  const { prescriptionId, fileUrl } = payload;
+  const { prescriptionId, fileKey } = payload;
 
   await prisma.prescription.update({
     where: { id: prescriptionId },
@@ -16,11 +16,20 @@ export async function processOCR(payload: OcrJobPayload) {
   });
 
   try {
-    const fileBuffer = await downloadFromS3(fileUrl);
+    const fileBuffer = await downloadFromS3(fileKey);
     const { rawText, confidence } = await runOcr(fileBuffer);
 
-    // Structural check: is this actually a prescription, or just a medicine list?
-    if (!looksLikePrescription(rawText)) {
+    const normalizedText = rawText.trim();
+    const reviewReason =
+      normalizedText.length === 0
+        ? "No readable text was found in the uploaded file."
+        : !looksLikePrescription(normalizedText)
+          ? "The uploaded document does not look like a prescription."
+          : null;
+
+    // Structural screening never discards a file silently. It routes blank,
+    // ordinary-text, and ambiguous documents to the admin review queue.
+    if (reviewReason) {
       await prisma.prescription.update({
         where: { id: prescriptionId },
         data: {
@@ -28,6 +37,7 @@ export async function processOCR(payload: OcrJobPayload) {
           status: "NEEDS_REVIEW",
           flaggedForReview: true,
           confidenceScore: confidence,
+          reviewReason,
         },
       });
       return; // don't attempt structured extraction on something that may not even be a prescription
@@ -45,9 +55,11 @@ export async function processOCR(payload: OcrJobPayload) {
         doctorName: extracted.doctorName,
         doctorRegNo: extracted.doctorRegNo,
         clinicName: extracted.clinicName,
+        prescriptionDate: extracted.prescriptionDate,
         confidenceScore: extracted.overallConfidence,
         status: needsReview ? "NEEDS_REVIEW" : "COMPLETED",
         flaggedForReview: needsReview,
+        reviewReason: needsReview ? "OCR confidence was too low for an automatic result." : null,
         medicines: {
           create: extracted.medicines.map((m) => ({
             rawText: m.rawText,

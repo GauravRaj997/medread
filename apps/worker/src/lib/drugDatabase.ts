@@ -12,5 +12,5 @@ export const KNOWN_MEDICINES: string[] = [
   "Insulin", "Glimepiride", "Gliclazide", "Vitamin D3", "Vitamin B12",
   "Folic Acid", "Iron Sucrose", "Calcium Carbonate", "Multivitamin",
   "Thyroxine", "Levothyroxine", "Clopidogrel", "Rosuvastatin", "Pantop",
-  "Zerodol", "Augmentin", "Zithromax", "Betadine", "Volini",
+  "Zerodol", "Augmentin", "Zithromax", "Betadine", "Volini","ORS","Syrup",
 ];

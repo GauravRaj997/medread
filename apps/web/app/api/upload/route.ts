@@ -1,45 +1,41 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@medread/db";
 import { Queue } from "bullmq";
+import { prisma } from "@medread/db";
 import type { OcrJobPayload } from "@medread/types";
+import { computeFileHash, hasValidFileSignature, validateFile } from "@/lib/fileValidation";
 import { getClientIp } from "@/lib/getClientIp";
-import { hasTrialRemaining, recordTrialUsage, anonymousExpiryDate } from "@/lib/anonymousTrial";
-import { getSessionFromRequest } from "@/lib/session";
-import { validateFile, computeFileHash } from "@/lib/fileValidation";
+import { hashIp } from "@/lib/hashIp";
 import { uploadToS3 } from "@/lib/s3";
+import { allowUpload } from "@/lib/uploadRateLimit";
+
+export const runtime = "nodejs";
 
 const ocrQueue = new Queue<OcrJobPayload>("ocr-processing", {
   connection: { url: process.env.REDIS_URL },
 });
 
-export async function POST(req: NextRequest) {
-  const session = await getSessionFromRequest(req);
-  let userId: string | null = null;
-  let isAnonymous = false;
+function retentionDate(): Date {
+  const hours = Number(process.env.PRESCRIPTION_RETENTION_HOURS ?? 24);
+  return new Date(Date.now() + Math.max(1, hours) * 60 * 60 * 1000);
+}
 
-  if (session) {
-    userId = session.userId;
-  } else {
-    const ip = getClientIp(req);
-    const allowed = await hasTrialRemaining(ip);
+export async function POST(request: NextRequest) {
+  const formData = await request.formData();
+  const consent = formData.get("consent");
+  const file = formData.get("file");
 
-    if (!allowed) {
-      return NextResponse.json(
-        { error: "FREE_TRIAL_USED", message: "You've used your free upload. Please log in to continue." },
-        { status: 401 }
-      );
-    }
-
-    await recordTrialUsage(ip);
-    isAnonymous = true;
+  if (consent !== "true") {
+    return NextResponse.json(
+      { error: "CONSENT_REQUIRED", message: "Please acknowledge the medical disclaimer before uploading." },
+      { status: 400 }
+    );
   }
 
-  // --- Parse the uploaded file ---
-  const formData = await req.formData();
-  const file = formData.get("file") as File | null;
-
-  if (!file) {
-    return NextResponse.json({ error: "NO_FILE", message: "No file provided." }, { status: 400 });
+  if (!(file instanceof File)) {
+    return NextResponse.json(
+      { error: "NO_FILE", message: "Choose a prescription to upload." },
+      { status: 400 }
+    );
   }
 
   const validation = validateFile(file);
@@ -48,53 +44,34 @@ export async function POST(req: NextRequest) {
   }
 
   const buffer = Buffer.from(await file.arrayBuffer());
-  const fileHash = await computeFileHash(buffer);
-
-  // --- Duplicate detection (only meaningful for logged-in users — anonymous
-  // uploads have no history to compare against) ---
-  if (userId) {
-    const existing = await prisma.prescription.findFirst({
-      where: { userId, fileHash },
-    });
-
-    if (existing) {
-      return NextResponse.json({
-        ok: true,
-        prescriptionId: existing.id,
-        status: existing.status,
-        duplicate: true,
-        message: "You've already uploaded this file.",
-      });
-    }
+  if (!hasValidFileSignature(buffer, file.type)) {
+    return NextResponse.json(
+      { error: "INVALID_FILE", message: "The uploaded file does not match its stated format." },
+      { status: 400 }
+    );
   }
 
-  // TODO: run malware scan on `buffer` before upload (ClamAV or a scanning API)
-  // TODO: if file.type is image/jpeg or image/png, convert to PDF here (pdf-lib)
-  //       — or pass the image straight to the OCR provider, which handles both
+  const permitted = await allowUpload(hashIp(getClientIp(request)));
+  if (!permitted) {
+    return NextResponse.json(
+      { error: "RATE_LIMITED", message: "Too many uploads in a short period. Please try again later." },
+      { status: 429 }
+    );
+  }
 
-  const s3Key = await uploadToS3(buffer, file.type);
+  const fileHash = computeFileHash(buffer);
+  const fileKey = await uploadToS3(buffer, file.type);
 
   const prescription = await prisma.prescription.create({
     data: {
-      userId,
-      isAnonymous,
-      expiresAt: isAnonymous ? anonymousExpiryDate() : null,
-      originalFileUrl: s3Key,
+      originalFileKey: fileKey,
+      originalMimeType: file.type,
       fileHash,
-      status: "UPLOADED",
+      expiresAt: retentionDate(),
     },
   });
 
-  await ocrQueue.add("process", {
-    prescriptionId: prescription.id,
-    fileUrl: s3Key,
-    userId: userId ?? "anonymous",
-  });
+  await ocrQueue.add("process", { prescriptionId: prescription.id, fileKey });
 
-  return NextResponse.json({
-    ok: true,
-    prescriptionId: prescription.id,
-    status: "PROCESSING",
-    isAnonymous,
-  });
+  return NextResponse.json({ prescriptionId: prescription.id, status: "PROCESSING" }, { status: 202 });
 }
