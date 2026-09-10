@@ -1,0 +1,24 @@
+{
+  "name": "@medread/worker",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@medread/db": "workspace:*",
+    "@medread/types": "workspace:*",
+    "@medread/config": "workspace:*",
+    "bullmq": "^5.12.0",
+    "sharp": "^0.33.0",
+    "@google-cloud/vision": "^4.3.0",
+    "@aws-sdk/client-s3": "^3.637.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "typescript": "^5.5.0",
+    "tsx": "^4.16.0"
+  }
+}

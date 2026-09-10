@@ -1,0 +1,23 @@
+{
+  "name": "medread",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "db:generate": "pnpm --filter @medread/db generate",
+    "db:migrate": "pnpm --filter @medread/db migrate",
+    "db:seed": "pnpm --filter @medread/db seed",
+    "db:studio": "pnpm --filter @medread/db studio"
+  },
+  "devDependencies": {
+    "turbo": "^2.1.0",
+    "typescript": "^5.5.0",
+    "prettier": "^3.3.0"
+  },
+  "packageManager": "pnpm@9.7.0"
+}

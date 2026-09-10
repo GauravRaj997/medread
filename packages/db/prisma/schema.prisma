@@ -1,0 +1,41 @@
+enum Role {
+  USER
+  ADMIN
+}
+
+// Granular admin permissions. A user's role must be ADMIN for these to mean
+// anything — permissions never grant admin access on their own, they only
+// scope what an existing admin can see/do once inside /admin.
+enum Permission {
+  MANAGE_USERS              // suspend/edit users, view their full profile
+  VIEW_USERS                // read-only user list
+  VIEW_FLAGGED_UPLOADS      // see prescriptions flagged for manual review
+  REVIEW_FLAGGED_UPLOADS    // approve/correct flagged prescriptions
+  VIEW_ANALYTICS            // OCR accuracy, usage stats, storage costs
+  MANAGE_SETTINGS           // app-wide config (disclaimers, trial limits, etc.)
+  VIEW_AUDIT_LOGS           // who accessed/downloaded what
+  MANAGE_ADMIN_PERMISSIONS  // grant/revoke other admins' permissions (super-admin)
+}
+
+model User {
+  id            String   @id @default(cuid())
+  email         String?  @unique
+  phone         String?  @unique
+  emailVerified Boolean  @default(false)
+  phoneVerified Boolean  @default(false)
+  passwordHash  String?
+  role          Role     @default(USER)
+  // Only relevant when role == ADMIN. A super-admin (has MANAGE_ADMIN_PERMISSIONS)
+  // decides which of these each admin account gets.
+  permissions   Permission[] @default([])
+
+  prescriptions Prescription[]
+  otpCodes      OtpCode[]
+  auditLogs     AuditLog[]
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([email])
+  @@index([phone])
+}
