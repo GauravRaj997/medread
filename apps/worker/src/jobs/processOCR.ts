@@ -3,12 +3,15 @@ import type { OcrJobPayload } from "@medread/types";
 import { downloadFromS3 } from "../lib/s3Download";
 import { runOcr } from "../lib/ocrProvider";
 import { looksLikePrescription, parsePrescriptionText } from "../lib/parsePrescription";
+import { checkContentQuality } from "../lib/contentQualityCheck";
 import { matchMedicineNames } from "./matchMedicineNames";
+import { generatePdfBuffer, generateJpegBuffer } from "../lib/generateExport";
+import { uploadExportToS3 } from "../lib/s3Upload";
 
 const MIN_CONFIDENCE_TO_AUTO_COMPLETE = 0.75;
 
 export async function processOCR(payload: OcrJobPayload) {
-  const { prescriptionId, fileKey } = payload;
+  const { prescriptionId, fileUrl } = payload;
 
   await prisma.prescription.update({
     where: { id: prescriptionId },
@@ -16,31 +19,36 @@ export async function processOCR(payload: OcrJobPayload) {
   });
 
   try {
-    const fileBuffer = await downloadFromS3(fileKey);
+    const fileBuffer = await downloadFromS3(fileUrl);
     const { rawText, confidence } = await runOcr(fileBuffer);
 
-    const normalizedText = rawText.trim();
-    const reviewReason =
-      normalizedText.length === 0
-        ? "No readable text was found in the uploaded file."
-        : !looksLikePrescription(normalizedText)
-          ? "The uploaded document does not look like a prescription."
-          : null;
-
-    // Structural screening never discards a file silently. It routes blank,
-    // ordinary-text, and ambiguous documents to the admin review queue.
-    if (reviewReason) {
+    const qualityCheck = checkContentQuality(rawText);
+    if (!qualityCheck.valid) {
       await prisma.prescription.update({
         where: { id: prescriptionId },
         data: {
           rawOcrText: rawText,
           status: "NEEDS_REVIEW",
           flaggedForReview: true,
+          flagReason: qualityCheck.reason,
           confidenceScore: confidence,
-          reviewReason,
         },
       });
-      return; // don't attempt structured extraction on something that may not even be a prescription
+      return;
+    }
+
+    if (!looksLikePrescription(rawText)) {
+      await prisma.prescription.update({
+        where: { id: prescriptionId },
+        data: {
+          rawOcrText: rawText,
+          status: "NEEDS_REVIEW",
+          flaggedForReview: true,
+          flagReason: "NOT_A_PRESCRIPTION",
+          confidenceScore: confidence,
+        },
+      });
+      return;
     }
 
     const extracted = parsePrescriptionText(rawText, confidence);
@@ -48,18 +56,17 @@ export async function processOCR(payload: OcrJobPayload) {
 
     const needsReview = extracted.overallConfidence < MIN_CONFIDENCE_TO_AUTO_COMPLETE;
 
-    await prisma.prescription.update({
+    const updated = await prisma.prescription.update({
       where: { id: prescriptionId },
       data: {
         rawOcrText: rawText,
         doctorName: extracted.doctorName,
         doctorRegNo: extracted.doctorRegNo,
         clinicName: extracted.clinicName,
-        prescriptionDate: extracted.prescriptionDate,
         confidenceScore: extracted.overallConfidence,
         status: needsReview ? "NEEDS_REVIEW" : "COMPLETED",
         flaggedForReview: needsReview,
-        reviewReason: needsReview ? "OCR confidence was too low for an automatic result." : null,
+        flagReason: needsReview ? "LOW_CONFIDENCE" : undefined,
         medicines: {
           create: extracted.medicines.map((m) => ({
             rawText: m.rawText,
@@ -72,7 +79,27 @@ export async function processOCR(payload: OcrJobPayload) {
           })),
         },
       },
+      include: { medicines: true },
     });
+
+    // Only generate downloadable exports once it's actually COMPLETED —
+    // a NEEDS_REVIEW result shouldn't produce a "final" file yet.
+    if (!needsReview) {
+      const [pdfBuffer, jpegBuffer] = await Promise.all([
+        generatePdfBuffer(updated),
+        generateJpegBuffer(updated),
+      ]);
+
+      const [pdfKey, jpegKey] = await Promise.all([
+        uploadExportToS3(pdfBuffer, "application/pdf"),
+        uploadExportToS3(jpegBuffer, "image/jpeg"),
+      ]);
+
+      await prisma.prescription.update({
+        where: { id: prescriptionId },
+        data: { exportedPdfUrl: pdfKey, exportedJpegUrl: jpegKey },
+      });
+    }
   } catch (err) {
     await prisma.prescription.update({
       where: { id: prescriptionId },

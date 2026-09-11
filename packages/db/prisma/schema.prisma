@@ -10,69 +10,55 @@ datasource db {
 enum PrescriptionStatus {
   UPLOADED
   PROCESSING
-  COMPLETED
   NEEDS_REVIEW
+  COMPLETED
   FAILED
+  REJECTED     // not a prescription at all — blank page, random text, etc.
 }
 
-enum ContactMessageStatus {
-  NEW
-  IN_PROGRESS
-  CLOSED
-}
-
+// Every prescription is unowned — apps/web has no accounts. expiresAt
+// applies to every row; the worker's cleanup job purges past it.
 model Prescription {
-  id                String             @id @default(cuid())
-  status            PrescriptionStatus @default(UPLOADED)
-  originalFileKey   String
-  originalMimeType  String
-  fileHash          String
-  rawOcrText        String?
-  doctorName        String?
-  doctorRegNo       String?
-  clinicName        String?
-  prescriptionDate  String?
-  confidenceScore   Float?
-  flaggedForReview  Boolean            @default(false)
-  reviewReason      String?
-  expiresAt         DateTime
-  createdAt         DateTime           @default(now())
-  updatedAt         DateTime           @updatedAt
+  id              String              @id @default(cuid())
 
-  medicines Medicine[]
-  auditLogs AuditLog[]
+  originalFileUrl String
+  fileHash        String
+  status          PrescriptionStatus  @default(UPLOADED)
 
-  @@index([status])
+  patientName      String?
+  doctorName       String?
+  doctorRegNo      String?
+  clinicName       String?
+  diagnosis        String?
+  prescriptionDate DateTime?
+  rawOcrText       String?            @db.Text
+  confidenceScore  Float?
+
+  medicines        Medicine[]
+
+  exportedPdfUrl   String?
+  exportedJpegUrl  String?
+
+  // Abuse/quality monitoring — what the admin review queue is for.
+  flaggedForReview Boolean @default(false)
+  flagReason       String? // e.g. "BLANK_PAGE", "GIBBERISH_TEXT", "NOT_A_PRESCRIPTION", "LOW_CONFIDENCE"
+  reviewedByAdmin  Boolean @default(false)
+
+  expiresAt        DateTime
+
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([fileHash])
   @@index([expiresAt])
-}
-
-model AdminUser {
-  id           String    @id @default(cuid())
-  email        String    @unique
-  passwordHash String
-  displayName  String
-  isActive     Boolean   @default(true)
-  sessions     AdminSession[]
-  auditLogs    AuditLog[]
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-}
-
-model AdminSession {
-  id          String    @id @default(cuid())
-  adminUserId String
-  adminUser   AdminUser @relation(fields: [adminUserId], references: [id], onDelete: Cascade)
-  tokenHash   String    @unique
-  expiresAt   DateTime
-  createdAt   DateTime  @default(now())
-
-  @@index([expiresAt])
+  @@index([flaggedForReview])
 }
 
 model Medicine {
   id             String       @id @default(cuid())
   prescriptionId String
   prescription   Prescription @relation(fields: [prescriptionId], references: [id], onDelete: Cascade)
+
   rawText        String
   matchedName    String?
   dosage         String?
@@ -80,42 +66,58 @@ model Medicine {
   duration       String?
   instructions   String?
   confidence     Float?
-  createdAt      DateTime     @default(now())
 
   @@index([prescriptionId])
 }
 
-model ContactMessage {
-  id        String   @id @default(cuid())
-  name      String
-  email     String
-  message   String
-  status    ContactMessageStatus @default(NEW)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([createdAt])
-  @@index([status])
-}
-
-model AuditLog {
-  id             String        @id @default(cuid())
-  adminUserId    String
-  adminUser      AdminUser     @relation(fields: [adminUserId], references: [id], onDelete: Cascade)
-  prescriptionId String?
-  prescription   Prescription? @relation(fields: [prescriptionId], references: [id], onDelete: SetNull)
-  action         String
-  details        Json?
-  createdAt      DateTime      @default(now())
-
-  @@index([createdAt])
-  @@index([prescriptionId])
-}
-
+// Backs apps/web/lib/uploadRateLimit.ts — simple per-IP throttling on uploads.
 model UploadRateEvent {
   id        String   @id @default(cuid())
   ipHash    String
   createdAt DateTime @default(now())
 
   @@index([ipHash, createdAt])
+}
+
+// Separate throttle table for the contact form, so it doesn't share a
+// counter with upload rate limiting — a legitimate user could need to do
+// both in the same session without one blocking the other.
+model ContactRateEvent {
+  id        String   @id @default(cuid())
+  ipHash    String
+  createdAt DateTime @default(now())
+
+  @@index([ipHash, createdAt])
+}
+
+// The public contact/support form (apps/web) writes here.
+// apps/admin reads/resolves them. No user relation — the sender isn't an
+// account, just whatever contact info they typed in.
+model ContactMessage {
+  id          String   @id @default(cuid())
+  name        String?
+  email       String
+  subject     String?
+  message     String   @db.Text
+
+  resolved    Boolean  @default(false)
+  adminNote   String?  // free-text note the admin leaves after reading/resolving
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([resolved])
+  @@index([createdAt])
+}
+
+// Lightweight action log for the single admin — no User relation needed
+// since there's no User table anymore. Just records what happened.
+model AuditLog {
+  id        String   @id @default(cuid())
+  action    String   // e.g. "REVIEWED_UPLOAD", "RESOLVED_CONTACT_MESSAGE"
+  targetId  String?
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  @@index([action])
 }
