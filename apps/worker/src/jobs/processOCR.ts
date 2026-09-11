@@ -10,6 +10,24 @@ import { uploadExportToS3 } from "../lib/s3Upload";
 
 const MIN_CONFIDENCE_TO_AUTO_COMPLETE = 0.75;
 
+function parsePrescriptionDate(value?: string): Date | null {
+  if (!value) return null;
+
+  const numeric = value.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2}|\d{4})$/);
+  if (!numeric) return null;
+
+  const day = Number(numeric[1]);
+  const month = Number(numeric[2]);
+  const year = Number(numeric[3].length === 2 ? `20${numeric[3]}` : numeric[3]);
+  const date = new Date(Date.UTC(year, month - 1, day));
+
+  return date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day
+    ? date
+    : null;
+}
+
 export async function processOCR(payload: OcrJobPayload) {
   const { prescriptionId, fileUrl } = payload;
 
@@ -63,6 +81,7 @@ export async function processOCR(payload: OcrJobPayload) {
         doctorName: extracted.doctorName,
         doctorRegNo: extracted.doctorRegNo,
         clinicName: extracted.clinicName,
+        prescriptionDate: parsePrescriptionDate(extracted.prescriptionDate),
         confidenceScore: extracted.overallConfidence,
         status: needsReview ? "NEEDS_REVIEW" : "COMPLETED",
         flaggedForReview: needsReview,

@@ -90,6 +90,14 @@ model ContactRateEvent {
   @@index([ipHash, createdAt])
 }
 
+model AdminLoginEvent {
+  id        String   @id @default(cuid())
+  ipHash    String
+  createdAt DateTime @default(now())
+
+  @@index([ipHash, createdAt])
+}
+
 // The public contact/support form (apps/web) writes here.
 // apps/admin reads/resolves them. No user relation — the sender isn't an
 // account, just whatever contact info they typed in.

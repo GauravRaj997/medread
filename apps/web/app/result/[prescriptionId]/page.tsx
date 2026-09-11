@@ -15,13 +15,22 @@ const STATUS_MESSAGES: Record<string, string> = {
 // Pair this with client-side polling (fetch this page's data every few
 // seconds) for a "live updating" feel — that part's a frontend concern
 // once we get to wiring up actual UI/interactivity here.
-export default async function ResultPage({ params }: { params: { prescriptionId: string } }) {
+export default async function ResultPage({
+  params,
+}: {
+  params: Promise<{ prescriptionId: string }>;
+}) {
+  const { prescriptionId } = await params;
   const prescription = await prisma.prescription.findUnique({
-    where: { id: params.prescriptionId },
+    where: { id: prescriptionId },
     include: { medicines: true },
   });
 
   if (!prescription) {
+    notFound();
+  }
+
+  if (prescription.expiresAt <= new Date()) {
     notFound();
   }
 

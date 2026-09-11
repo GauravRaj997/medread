@@ -1,18 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { verifyAdminCredentials, createAdminSessionToken } from "@/lib/adminAuth";
+import { createAdminSessionToken, isAdminEmail } from "@/lib/adminAuth";
+import { verifyAdminPassword } from "@/lib/adminCredentials";
+import { getClientIp } from "@/lib/getClientIp";
+import { allowAdminLogin } from "@/lib/loginRateLimit";
 
 const loginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(1),
 });
 
-// No rate limiting shown here, but add one — this endpoint is a direct
-// target for brute-forcing the one admin credential that controls everything.
 export async function POST(req: NextRequest) {
   const body = loginSchema.parse(await req.json());
 
-  if (!verifyAdminCredentials(body.email, body.password)) {
+  const allowed = await allowAdminLogin(getClientIp(req));
+  if (!allowed) {
+    return NextResponse.json({ error: "RATE_LIMITED" }, { status: 429 });
+  }
+
+  if (!isAdminEmail(body.email) || !verifyAdminPassword(body.password)) {
     return NextResponse.json({ error: "INVALID_CREDENTIALS" }, { status: 401 });
   }
 

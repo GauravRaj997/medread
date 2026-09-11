@@ -12,21 +12,19 @@
     "@medread/db": "workspace:*",
     "@medread/types": "workspace:*",
     "@medread/config": "workspace:*",
-    "next": "^14.2.0",
-    "react": "^18.3.0",
-    "react-dom": "^18.3.0",
-    "jsonwebtoken": "^9.0.2",
+    "next": "^16.3.4",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
     "bullmq": "^5.12.0",
     "zod": "^3.23.0",
     "@aws-sdk/client-s3": "^3.637.0",
     "@aws-sdk/s3-request-presigner": "^3.637.0"
   },
   "devDependencies": {
-    "@types/node": "^20.14.0",
-    "@types/react": "^18.3.0",
-    "@types/jsonwebtoken": "^9.0.6",
-    "typescript": "^5.5.0",
-    "tailwindcss": "^3.4.0",
+    "@types/node": "^20.19.43",
+    "@types/react": "^19.2.18",
+    "typescript": "^5.9.3",
+    "tailwindcss": "^4.1.0",
     "autoprefixer": "^10.4.0",
     "postcss": "^8.4.0"
   }

@@ -5,7 +5,7 @@ import type { OcrJobPayload } from "@medread/types";
 import { getClientIp } from "@/lib/getClientIp";
 import { hashIp } from "@/lib/hashIp";
 import { allowUpload } from "@/lib/uploadRateLimit";
-import { validateFile, computeFileHash } from "@/lib/fileValidation";
+import { validateFile, computeFileHash, hasValidFileSignature } from "@/lib/fileValidation";
 import { uploadToS3 } from "@/lib/s3";
 
 const ocrQueue = new Queue<OcrJobPayload>("ocr-processing", {
@@ -18,18 +18,14 @@ const ocrQueue = new Queue<OcrJobPayload>("ocr-processing", {
 const RESULT_RETENTION_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 export async function POST(req: NextRequest) {
-  const ip = getClientIp(req);
-  const ipHash = hashIp(ip);
-
-  const allowed = await allowUpload(ipHash);
-  if (!allowed) {
+  const formData = await req.formData();
+  if (formData.get("consent") !== "true") {
     return NextResponse.json(
-      { error: "RATE_LIMITED", message: "Too many uploads from this IP. Please try again later." },
-      { status: 429 }
+      { error: "CONSENT_REQUIRED", message: "Please acknowledge the medical disclaimer before uploading." },
+      { status: 400 }
     );
   }
 
-  const formData = await req.formData();
   const file = formData.get("file") as File | null;
 
   if (!file) {
@@ -42,6 +38,22 @@ export async function POST(req: NextRequest) {
   }
 
   const buffer = Buffer.from(await file.arrayBuffer());
+  if (!hasValidFileSignature(buffer, file.type)) {
+    return NextResponse.json(
+      { error: "INVALID_FILE", message: "The uploaded file does not match its stated format." },
+      { status: 400 }
+    );
+  }
+
+  const ipHash = hashIp(getClientIp(req));
+  const allowed = await allowUpload(ipHash);
+  if (!allowed) {
+    return NextResponse.json(
+      { error: "RATE_LIMITED", message: "Too many uploads from this IP. Please try again later." },
+      { status: 429 }
+    );
+  }
+
   const fileHash = await computeFileHash(buffer);
 
   // TODO: run malware scan on `buffer` before upload (ClamAV or a scanning API)

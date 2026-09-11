@@ -1,4 +1,5 @@
 import { prisma } from "@medread/db";
+import { revalidatePath } from "next/cache";
 
 async function resolveMessage(formData: FormData) {
   "use server";
@@ -7,6 +8,11 @@ async function resolveMessage(formData: FormData) {
     where: { id },
     data: { resolved: true },
   });
+  await prisma.auditLog.create({
+    data: { action: "RESOLVED_CONTACT_MESSAGE", targetId: id },
+  });
+  revalidatePath("/messages");
+  revalidatePath("/");
 }
 
 export default async function MessagesPage() {

@@ -1,31 +1,28 @@
-import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
-import crypto from "crypto";
+import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
 
 const s3 = new S3Client({
-  region: process.env.S3_REGION!,
+  region: process.env.S3_REGION,
   credentials: {
-    accessKeyId: process.env.S3_ACCESS_KEY_ID!,
-    secretAccessKey: process.env.S3_SECRET_ACCESS_KEY!,
+    accessKeyId: process.env.S3_ACCESS_KEY_ID ?? "",
+    secretAccessKey: process.env.S3_SECRET_ACCESS_KEY ?? "",
   },
 });
 
-const BUCKET = process.env.S3_BUCKET_NAME!;
+export async function downloadFromS3(key: string): Promise<Buffer> {
+  const bucket = process.env.S3_BUCKET_NAME;
+  if (!bucket) {
+    throw new Error("S3_BUCKET_NAME is not configured.");
+  }
 
-// Uploads a generated export (PDF/JPEG) under its own prefix, separate from
-// originals, so cleanup/lifecycle rules can treat them differently later if needed.
-export async function uploadExportToS3(buffer: Buffer, contentType: string): Promise<string> {
-  const extension = contentType === "application/pdf" ? "pdf" : "jpg";
-  const key = `exports/${crypto.randomUUID()}.${extension}`;
+  const response = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
+  if (!response.Body) {
+    throw new Error("S3 returned an empty object body.");
+  }
 
-  await s3.send(
-    new PutObjectCommand({
-      Bucket: BUCKET,
-      Key: key,
-      Body: buffer,
-      ContentType: contentType,
-      ServerSideEncryption: "AES256",
-    })
-  );
+  const chunks: Buffer[] = [];
+  for await (const chunk of response.Body as NodeJS.ReadableStream) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
 
-  return key;
+  return Buffer.concat(chunks);
 }

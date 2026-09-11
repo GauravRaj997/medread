@@ -1,4 +1,5 @@
-import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import crypto from "crypto";
 
 const s3 = new S3Client({
@@ -30,4 +31,13 @@ export async function uploadToS3(buffer: Buffer, contentType: string): Promise<s
   );
 
   return key;
+}
+
+export async function getSignedFileUrl(key: string): Promise<string> {
+  const bucket = process.env.S3_BUCKET_NAME;
+  if (!bucket) {
+    throw new Error("S3_BUCKET_NAME is not configured.");
+  }
+
+  return getSignedUrl(s3, new GetObjectCommand({ Bucket: bucket, Key: key }), { expiresIn: 5 * 60 });
 }

@@ -1,4 +1,5 @@
 import { prisma } from "@medread/db";
+import { deleteS3Objects } from "../lib/s3Upload";
 
 // Purges every prescription past its expiresAt — there's no "anonymous"
 // subset anymore, nothing on the public reader side has an owner to manage
@@ -9,14 +10,18 @@ export async function cleanupExpiredData() {
     select: { id: true, originalFileUrl: true, exportedPdfUrl: true, exportedJpegUrl: true },
   });
 
-  for (const p of expired) {
-    // TODO: delete original file + exports from S3 using stored keys/URLs
-    // (originalFileUrl, exportedPdfUrl, exportedJpegUrl)
+  let count = 0;
+  for (const prescription of expired) {
+    // Preserve the database row if storage deletion fails. That makes the
+    // next cleanup run retry instead of orphaning a sensitive medical file.
+    await deleteS3Objects([
+      prescription.originalFileUrl,
+      prescription.exportedPdfUrl,
+      prescription.exportedJpegUrl,
+    ]);
+    await prisma.prescription.delete({ where: { id: prescription.id } });
+    count += 1;
   }
-
-  const { count } = await prisma.prescription.deleteMany({
-    where: { expiresAt: { lt: new Date() } },
-  });
 
   console.log(`Cleaned up ${count} expired prescription(s)`);
   return count;

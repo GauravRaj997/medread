@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyAdminSessionToken } from "@/lib/adminAuth";
 
+export const runtime = "nodejs";
+
 // Everything in this app requires a valid session except /login itself
 // and the login API route (which is how you GET a session in the first place).
 const PUBLIC_PATHS = ["/login", "/api/login"];

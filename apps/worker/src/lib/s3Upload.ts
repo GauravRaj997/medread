@@ -1,4 +1,4 @@
-import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import { DeleteObjectsCommand, S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import crypto from "crypto";
 
 const s3 = new S3Client({
@@ -28,4 +28,16 @@ export async function uploadExportToS3(buffer: Buffer, contentType: string): Pro
   );
 
   return key;
+}
+
+export async function deleteS3Objects(keys: Array<string | null | undefined>): Promise<void> {
+  const objects = keys.filter((key): key is string => Boolean(key)).map((Key) => ({ Key }));
+  if (objects.length === 0) return;
+
+  await s3.send(
+    new DeleteObjectsCommand({
+      Bucket: BUCKET,
+      Delete: { Objects: objects, Quiet: true },
+    })
+  );
 }
