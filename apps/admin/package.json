@@ -9,20 +9,20 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "@medread/db": "workspace:*",
-    "@medread/types": "workspace:*",
     "@aws-sdk/client-s3": "^3.637.0",
     "@aws-sdk/s3-request-presigner": "^3.637.0",
+    "@medread/db": "workspace:*",
+    "@medread/types": "workspace:*",
+    "jsonwebtoken": "^9.0.2",
     "next": "^16.3.4",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
-    "jsonwebtoken": "^9.0.2",
-    "zod": "^3.23.0"
+    "zod": "^3.25.76"
   },
   "devDependencies": {
+    "@types/jsonwebtoken": "^9.0.6",
     "@types/node": "^20.19.43",
     "@types/react": "^19.2.18",
-    "@types/jsonwebtoken": "^9.0.6",
     "typescript": "^5.9.3"
   }
 }

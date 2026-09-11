@@ -1,4 +1,5 @@
 import { PrismaClient } from "@prisma/client";
+export type { Medicine, Prescription } from "@prisma/client";
 
 const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
 

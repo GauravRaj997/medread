@@ -1,6 +1,6 @@
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import sharp from "sharp";
-import type { Medicine, Prescription } from "@prisma/client";
+import type { Medicine, Prescription } from "@medread/db";
 
 const DISCLAIMER =
   "This is an AI-generated interpretation of a handwritten prescription. " +
